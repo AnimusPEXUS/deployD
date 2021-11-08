@@ -89,7 +89,8 @@ void buildTargetPrepareClones(
 	foreach(v; SRC_BUILD_NAMES)
 	{
 		auto td = buildPath(target_root_dir, v);
-		mkdirRecurse(td);
+		collectException(rmdirRecurse(td));
+		collectException(mkdirRecurse(td));
 		chdir(td);
 		
 		auto pid = spawnProcess(["git", "clone", buildPath(src_root_dir, v), "."]);
@@ -111,7 +112,7 @@ void buildDMD(
 	)
 {
 	auto tdmd = buildPath(target_root_dir, "dmd");
-	auto tlocal = buildPath(target_root_dir, "_local");
+	// auto tlocal = buildPath(target_root_dir, "_local");
 	
 	chdir(tdmd);
 	auto pid = spawnProcess(["rdmd", "src/build.d"]);
@@ -120,15 +121,29 @@ void buildDMD(
 		throw new Exception("Couldn't build source here: " ~ tdmd);
 	}		
 
-	pid = spawnProcess(
+	/* pid = spawnProcess(
 		["rdmd", "src/build.d", 
 		"install", "INSTALL="~tlocal]
 		);
 	if (wait(pid) != 0)
 	{
 		throw new Exception("Couldn't install dmd here: " ~ tlocal);
-	}		
+	}	 */	
 
+}
+
+void buildPhobos(
+	string target_root_dir
+	)
+{
+	auto tphobos = buildPath(target_root_dir, "phobos");
+	
+	chdir(tphobos);
+	auto pid = spawnProcess(["make", "-f", "posix.mak"]);
+	if (wait(pid) != 0)
+	{
+		throw new Exception("Couldn't build source here: " ~ tphobos);
+	}		
 }
 
 void buildTarget(
@@ -144,6 +159,8 @@ void buildTarget(
 		);	
 	
 	buildDMD(target_root_dir);
+	buildPhobos(target_root_dir);
+	// buildDUB(target_root_dir);
 	
 }
 
