@@ -5,9 +5,12 @@ import std.file;
 import std.path;
 import std.exception;
 import std.process;
+import std.format;
+import std.conv;
 
-auto SRC_GET_NAMES = ["dmd", "druntime", "phobos", "tools", "dub"];
-auto SRC_BUILD_NAMES = ["dmd", "druntime", "phobos", "tools"];
+const auto SRC_GET_NAMES = ["dmd", "druntime", "phobos", "tools", "dub"];
+const auto SRC_BUILD_NAMES = ["dmd", "druntime", "phobos", "tools"];
+const string ENV_ENABLER_FILE_NAME = ".dlang_enable_bash_environment";
 
 void isDirOk(string path)
 {
@@ -45,7 +48,7 @@ void renewRepo(string path, string name, string url)
 		chdir(bp_p_n);
 		writeln("clonning ", url, " to ", bp_p_n);
 		auto pid = spawnProcess(["git", "clone", url, "."]);
-		if (wait(pid) != 0) 
+		if (wait(pid) != 0)
 		{
 			throw new Exception("error clonning "~ url);
 		}
@@ -56,20 +59,20 @@ void renewRepo(string path, string name, string url)
 	{
 		chdir(bp_p_n);
 		auto pid = spawnProcess(["git", "checkout", "-f", "master"]);
-		if (wait(pid) != 0) 
+		if (wait(pid) != 0)
 		{
 			throw new Exception("error checking out master at "~ bp_p_n);
 		}
 		
 		writeln("pulling ", url, " to ", bp_p_n);
 		pid = spawnProcess(["git", "pull"]);
-		if (wait(pid) != 0) 
+		if (wait(pid) != 0)
 		{
 			throw new Exception("error pulling updates for "~ name);
 		}
 		writeln("  ok");
-	}		
-
+	}
+	
 }
 
 void renewRepos(string path)
@@ -97,13 +100,13 @@ void buildTargetPrepareClones(
 		if (wait(pid) != 0)
 		{
 			throw new Exception("Couldn't clone source here: " ~ td);
-		}		
+		}
 		
 		pid = spawnProcess(["git", "checkout", target]);
 		if (wait(pid) != 0)
 		{
 			throw new Exception("Couldn't checkout "~ target~ " at "~ td);
-		}	
+		}
 	}
 }
 
@@ -115,21 +118,31 @@ void buildDMD(
 	// auto tlocal = buildPath(target_root_dir, "_local");
 	
 	chdir(tdmd);
-	auto pid = spawnProcess(["rdmd", "src/build.d"]);
-	if (wait(pid) != 0)
 	{
-		throw new Exception("Couldn't build source here: " ~ tdmd);
-	}		
-
+		auto pid = spawnProcess(["dmd", "src/build.d"]);
+		if (wait(pid) != 0)
+		{
+			throw new Exception("Couldn't build source here: " ~ tdmd);
+		}
+	}
+	
+	{
+		auto pid = spawnProcess(["./build"]);
+		if (wait(pid) != 0)
+		{
+			throw new Exception("Couldn't build source here: " ~ tdmd);
+		}
+	}
+	
 	/* pid = spawnProcess(
-		["rdmd", "src/build.d", 
-		"install", "INSTALL="~tlocal]
-		);
+	["rdmd", "src/build.d",
+	"install", "INSTALL="~tlocal]
+	);
 	if (wait(pid) != 0)
 	{
-		throw new Exception("Couldn't install dmd here: " ~ tlocal);
-	}	 */	
-
+	throw new Exception("Couldn't install dmd here: " ~ tlocal);
+	}	 */
+	
 }
 
 void buildPhobos(
@@ -143,7 +156,21 @@ void buildPhobos(
 	if (wait(pid) != 0)
 	{
 		throw new Exception("Couldn't build source here: " ~ tphobos);
-	}		
+	}
+}
+
+void buildTools(
+	string target_root_dir
+	)
+{
+	auto tphobos = buildPath(target_root_dir, "tools");
+	
+	chdir(tphobos);
+	auto pid = spawnProcess(["make", "-f", "posix.mak"]);
+	if (wait(pid) != 0)
+	{
+		throw new Exception("Couldn't build source here: " ~ tphobos);
+	}
 }
 
 void buildTarget(
@@ -156,12 +183,34 @@ void buildTarget(
 		src_root_dir,
 		target_root_dir,
 		target
-		);	
+		);
 	
 	buildDMD(target_root_dir);
 	buildPhobos(target_root_dir);
-	// buildDUB(target_root_dir);
+	buildTools(target_root_dir);
+	// // buildDUB(target_root_dir);
+	createBashSourceScript(target_root_dir);
 	
+}
+
+void createBashSourceScript(string target_root_dir)
+{
+	auto txt =
+	q"<#!/bin/bash
+
+DLANG_PATH='%1$s/dmd/generated/linux/release/64:%1$s/tools/generated/linux/64'
+
+export PATH="$DLANG_PATH:"$PATH
+
+unset DLANG_PATH
+>".format(target_root_dir);
+	
+	auto fn = chainPath(expandTilde("~"), ENV_ENABLER_FILE_NAME);
+	auto f = File(fn, "w");
+	scope(exit) f.close();
+	f.write(txt);
+	
+	setAttributes(fn, octal!700);
 }
 
 
@@ -173,7 +222,7 @@ void main(string[] args)
 	writeln("==============================");
 	renewRepos(wd);
 	writeln("==============================");
-
+	
 	string target;
 	
 	if (args.length > 1)
@@ -190,6 +239,7 @@ void main(string[] args)
 	writeln("selected target: ", target);
 	
 	auto wd_target = buildPath(wd, "d_"~target);
+	// auto wd_result = buildPath(wd, "d_"~target~"_built");
 	
 	buildTarget(wd, wd_target, target);
 	
